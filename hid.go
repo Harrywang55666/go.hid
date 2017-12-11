@@ -22,8 +22,6 @@ import (
 	"fmt"
 	"sync"
 	"unsafe"
-
-	"github.com/GeertJohan/cgo.wchar"
 )
 
 var errNotImplemented = errors.New("not implemented yet")
@@ -202,19 +200,19 @@ func Enumerate(vendorId uint16, productId uint16) (DeviceInfoList, error) {
 		}
 
 		// get and convert serial_number from next hid_device_info
-		di.SerialNumber, err = wchar.WcharStringPtrToGoString(unsafe.Pointer(next.serial_number))
+		di.SerialNumber, err = wcharTToString(next.serial_number)
 		if err != nil {
 			di.SerialNumber = ""
 		}
 
 		// get and convert manufacturer_string from next hid_device_info
-		di.Manufacturer, err = wchar.WcharStringPtrToGoString(unsafe.Pointer(next.manufacturer_string))
+		di.Manufacturer, err = wcharTToString(next.manufacturer_string)
 		if err != nil {
 			di.Manufacturer = ""
 		}
 
 		// get and convert product_string from next hid_device_info
-		di.Product, err = wchar.WcharStringPtrToGoString(unsafe.Pointer(next.product_string))
+		di.Product, err = wcharTToString(next.product_string)
 		if err != nil {
 			return nil, fmt.Errorf("Could not convert *C.wchar_t product_string from hid_device_info to go string. Error: %s\n", err)
 		}
@@ -261,11 +259,7 @@ func Open(vendorId uint16, productId uint16, serialNumber string) (*Device, erro
 
 	// if a serialNumber is given, create a WcharString and set the pointer to it's first position pointer
 	if len(serialNumber) > 0 {
-		serialNumberWchar, err := wchar.FromGoString(serialNumber)
-		if err != nil {
-			return nil, errors.New("Unable to convert serialNumber to WcharString")
-		}
-		serialNumberWcharPtr = (*C.wchar_t)(unsafe.Pointer(serialNumberWchar.Pointer()))
+		serialNumberWcharPtr, _ = stringToWcharT(serialNumber)
 	}
 
 	// call hid_open()
@@ -587,17 +581,17 @@ func (dev *Device) Close() {
 
 // Get manufacturer string from device
 func (dev *Device) ManufacturerString() (string, error) {
-	// create WcharString
-	ws := wchar.NewWcharString(100)
+	str := emptyWcharStr()
+	cWchar, _ := stringToWcharT(str)
 
 	// retrieve manufacturer string from hid
-	res := C.hid_get_manufacturer_string(dev.hidHandle, (*C.wchar_t)(unsafe.Pointer(ws.Pointer())), 100)
+	res := C.hid_get_manufacturer_string(dev.hidHandle, cWchar, 100)
 	if res != 0 {
 		return "", dev.lastError()
 	}
 
 	// all done
-	return ws.GoString()
+	return str, nil
 }
 
 // /** @brief Get The Product String from a HID device.
@@ -614,17 +608,17 @@ func (dev *Device) ManufacturerString() (string, error) {
 
 // Get product string from device
 func (dev *Device) ProductString() (string, error) {
-	// create WcharString
-	ws := wchar.NewWcharString(100)
+	str := emptyWcharStr()
+	cWchar, _ := stringToWcharT(str)
 
 	// retrieve manufacturer string from hid
-	res := C.hid_get_product_string(dev.hidHandle, (*C.wchar_t)(unsafe.Pointer(ws.Pointer())), 100)
+	res := C.hid_get_product_string(dev.hidHandle, cWchar, 100)
 	if res != 0 {
 		return "", dev.lastError()
 	}
 
 	// all done
-	return ws.GoString()
+	return str, nil
 }
 
 // /** @brief Get The Serial Number String from a HID device.
@@ -641,17 +635,17 @@ func (dev *Device) ProductString() (string, error) {
 
 // Get Serial number string from device
 func (dev *Device) SerialNumberString() (string, error) {
-	// create WcharString
-	ws := wchar.NewWcharString(100)
+	str := emptyWcharStr()
+	cWchar, _ := stringToWcharT(str)
 
 	// retrieve manufacturer string from hid
-	res := C.hid_get_serial_number_string(dev.hidHandle, (*C.wchar_t)(unsafe.Pointer(ws.Pointer())), 100)
+	res := C.hid_get_serial_number_string(dev.hidHandle, cWchar, 100)
 	if res != 0 {
 		return "", dev.lastError()
 	}
 
 	// all done
-	return ws.GoString()
+	return str, nil
 }
 
 // /** @brief Get a string from a HID device, based on its string index.
@@ -669,17 +663,22 @@ func (dev *Device) SerialNumberString() (string, error) {
 
 // Get a string by index. String length will be max 256 wchars.
 func (dev *Device) GetIndexedString(index int) (string, error) {
-	// create WcharString
-	ws := wchar.NewWcharString(256)
+	str := emptyWcharStr()
+	cWchar, _ := stringToWcharT(str)
 
 	// retrieve manufacturer string from hid
-	res := C.hid_get_indexed_string(dev.hidHandle, C.int(index), (*C.wchar_t)(unsafe.Pointer(ws.Pointer())), 256)
+	res := C.hid_get_indexed_string(dev.hidHandle, C.int(index), cWchar, 100)
 	if res != 0 {
 		return "", dev.lastError()
 	}
 
 	// all done
-	return ws.GoString()
+	return str, nil
+}
+
+func emptyWcharStr() string {
+	b := make([]byte, 100)
+	return string(b)
 }
 
 // /** @brief Get a string describing the last error which occurred.
@@ -699,7 +698,7 @@ func (dev *Device) lastError() error {
 
 func (dev *Device) lastErrorString() string {
 	wcharPtr := C.hid_error(dev.hidHandle)
-	str, err := wchar.WcharStringPtrToGoString(unsafe.Pointer(wcharPtr))
+	str, err := wcharTToString(wcharPtr)
 	if err != nil {
 		return fmt.Sprintf("Error retrieving error string: %s", err)
 	}
